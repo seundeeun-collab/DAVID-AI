@@ -11,3 +11,5 @@ files/data/*.py
 files/data/.cache/
 # Token cache built by train.py from files/data.
 files/tokens/
+model-*.safetensors
+eval_results.json

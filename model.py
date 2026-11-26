@@ -88,7 +88,13 @@ class DecoderOnlyTransformer(nn.Module):
         for block in self.blocks: x = block(x)
         logits = self.lm_head(self.final_norm(x))
         # Inputs contain a context window; targets are its one-token-shifted answers.
-        loss = F.cross_entropy(logits.reshape(-1, logits.size(-1)), targets.reshape(-1)) if targets is not None else None
+        # Targets of -100 (e.g. the user's lines in chat data) are not trained on. Averaging
+        # over the real targets keeps a window with none of them at a loss of 0, not NaN.
+        loss = None
+        if targets is not None:
+            flat = targets.reshape(-1)
+            loss = F.cross_entropy(logits.reshape(-1, logits.size(-1)).float(), flat, ignore_index=-100, reduction="sum")
+            loss = loss / (flat != -100).sum().clamp(min=1)
         return logits, loss
 
 

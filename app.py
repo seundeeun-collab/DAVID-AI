@@ -1,9 +1,10 @@
-"""Local Flask UI; generation is always performed by the local Transformer."""
+"""Local Flask UI; chat and code generation are always performed by the local Transformer."""
 import ast, io, contextlib
 from pathlib import Path
 from flask import Flask, jsonify, render_template, request
 from flask_cors import CORS
 from generate import generate
+from chat import chat
 
 app=Flask(__name__,template_folder="templates",static_folder="static")
 CORS(app, origins=["http://127.0.0.1:5000", "http://localhost:5000"])
@@ -26,6 +27,21 @@ def make_code():
     try: return jsonify(code=generate(as_code_prompt(prompt),max_new_tokens=200))
     except FileNotFoundError as e: return jsonify(error=str(e)),503
     except Exception as e: app.logger.exception("Generation failed"); return jsonify(error=str(e)),500
+
+@app.post("/chat")
+def chat_reply():
+    """Body: {"messages": [{"role": "user"|"assistant", "content": "..."}]}. Needs a Stage 2 (chat) model."""
+    messages=(request.get_json(silent=True) or {}).get("messages")
+    if not isinstance(messages,list) or not messages: return jsonify(error="Send at least one message."),400
+    clean=[]
+    for m in messages[-20:]:
+        if not isinstance(m,dict) or m.get("role") not in ("user","assistant") or not isinstance(m.get("content"),str): return jsonify(error="Each message needs a role (user or assistant) and text."),400
+        if len(m["content"])>4000: return jsonify(error="Each message is limited to 4,000 characters."),400
+        clean.append({"role":m["role"],"content":m["content"]})
+    if clean[-1]["role"]!="user": return jsonify(error="The last message must be from the user."),400
+    try: return jsonify(reply=chat(clean,max_new_tokens=200))
+    except FileNotFoundError as e: return jsonify(error=str(e)),503
+    except Exception as e: app.logger.exception("Chat failed"); return jsonify(error=str(e)),500
 
 @app.post("/run")
 def run_code():

@@ -27,12 +27,12 @@ def _load(checkpoint_path=None, config_path=None):
 
 
 @torch.no_grad()
-def generate(prompt="def add(a, b):", max_new_tokens=200, temperature=.7, top_p=.9, top_k=50, checkpoint_path=None, config_path=None):
+def sample(ids, max_new_tokens=200, temperature=.7, top_p=.9, top_k=50, stop_ids=(), stop_text=(), checkpoint_path=None, config_path=None):
+    """Continue a list of token ids; return only the new ids. Stops at stop_ids or stop_text."""
     tok, cfg, device, model = _load(checkpoint_path, config_path)
-    eot = tok.token_to_id("<|endoftext|>")
-    ids = torch.tensor([tok.encode(prompt).ids], device=device)
+    x = torch.tensor([ids], device=device); new = []
     for _ in range(max_new_tokens):
-        logits, _ = model(ids[:, -cfg.max_seq_len:]); scores = logits[:, -1, :] / max(temperature, 1e-5)
+        logits, _ = model(x[:, -cfg.max_seq_len:]); scores = logits[:, -1, :].float() / max(temperature, 1e-5)
         if top_k:
             cutoff = torch.topk(scores, min(top_k, scores.size(-1))).values[:, -1, None]
             scores = scores.masked_fill(scores < cutoff, -float("inf"))
@@ -40,9 +40,19 @@ def generate(prompt="def add(a, b):", max_new_tokens=200, temperature=.7, top_p=
         remove = sorted_p.cumsum(-1) - sorted_p > top_p; sorted_p[remove] = 0
         probs = torch.zeros_like(probs).scatter(1, idx, sorted_p); probs = probs / probs.sum(-1, keepdim=True)
         nxt = torch.multinomial(probs, 1)
-        if eot is not None and nxt.item() == eot: break  # The model finished the file.
-        ids = torch.cat((ids, nxt), dim=1)
-    return tok.decode(ids[0].tolist(), skip_special_tokens=True)
+        if nxt.item() in stop_ids: break
+        new.append(nxt.item()); x = torch.cat((x, nxt), dim=1)
+        if stop_text and any(s in tok.decode(new[-12:]) for s in stop_text): break
+    return new
+
+
+def generate(prompt="def add(a, b):", max_new_tokens=200, temperature=.7, top_p=.9, top_k=50, checkpoint_path=None, config_path=None):
+    """Return the prompt plus the model's continuation (stops when the model ends the file)."""
+    tok = _load(checkpoint_path, config_path)[0]
+    eot = tok.token_to_id("<|endoftext|>")
+    ids = tok.encode(prompt).ids
+    new = sample(ids, max_new_tokens, temperature, top_p, top_k, stop_ids={eot} if eot is not None else (), checkpoint_path=checkpoint_path, config_path=config_path)
+    return tok.decode(ids + new, skip_special_tokens=True)
 
 
 if __name__ == "__main__":
