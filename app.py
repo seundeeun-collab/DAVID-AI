@@ -11,11 +11,19 @@ CORS(app, origins=["http://127.0.0.1:5000", "http://localhost:5000"])
 @app.get("/")
 def home(): return render_template("index.html")
 
+CODE_STARTS = ("def ", "class ", "import ", "from ", "#", "@", "async def ", '"' * 3, "'" * 3)
+
+def as_code_prompt(prompt):
+    """The model only learned from raw .py files, so plain English means little to it.
+    Turn an English request into a Python comment it can continue; leave code as-is."""
+    if "\n" in prompt or prompt.lstrip().startswith(CODE_STARTS): return prompt
+    return f"# {prompt}\n"
+
 @app.post("/generate")
 def make_code():
     prompt=(request.get_json(silent=True) or {}).get("prompt","").strip()
     if not prompt: return jsonify(error="Enter a prompt first."),400
-    try: return jsonify(code=generate(prompt,max_new_tokens=200))
+    try: return jsonify(code=generate(as_code_prompt(prompt),max_new_tokens=200))
     except FileNotFoundError as e: return jsonify(error=str(e)),503
     except Exception as e: app.logger.exception("Generation failed"); return jsonify(error=str(e)),500
 

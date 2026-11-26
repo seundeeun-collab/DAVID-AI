@@ -9,3 +9,5 @@ output.py
 # The streamed third-party corpus has per-file licenses that must be reviewed before redistribution.
 files/data/*.py
 files/data/.cache/
+# Token cache built by train.py from files/data.
+files/tokens/

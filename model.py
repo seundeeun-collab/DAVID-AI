@@ -26,15 +26,15 @@ class CausalSelfAttention(nn.Module):
         self.out = nn.Linear(config.dim, config.dim)
         self.attn_drop = nn.Dropout(config.dropout)
         self.resid_drop = nn.Dropout(config.dropout)
-        self.register_buffer("causal_mask", torch.tril(torch.ones(config.max_seq_len, config.max_seq_len, dtype=torch.bool)), persistent=False)
 
     def forward(self, x):
         b, t, c = x.shape
         q, k, v = self.qkv(x).chunk(3, dim=-1)
         shape = (b, t, self.heads, self.head_dim)
         q, k, v = (z.view(shape).transpose(1, 2) for z in (q, k, v))
-        # SDPA applies the causal mask efficiently on supported CPU and GPU builds.
-        y = F.scaled_dot_product_attention(q, k, v, attn_mask=self.causal_mask[:t, :t], dropout_p=self.attn_drop.p if self.training else 0.0)
+        # is_causal lets SDPA pick its fastest kernel (Flash/memory-efficient) without
+        # building and storing a max_seq_len x max_seq_len mask.
+        y = F.scaled_dot_product_attention(q, k, v, is_causal=True, dropout_p=self.attn_drop.p if self.training else 0.0)
         y = y.transpose(1, 2).contiguous().view(b, t, c)
         return self.resid_drop(self.out(y))
 

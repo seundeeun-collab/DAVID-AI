@@ -1,6 +1,6 @@
 # My Transformer: a local Python-code learning project
 
-This project contains a decoder-only Transformer written with PyTorch. It predicts the next GPT-2 token repeatedly. Flask serves a small website; `/generate` calls only `generate.py` and the local `model.safetensors`, with no ChatGPT, Ollama, or hosted inference fallback. The model starts with random weights. It cannot write useful code until it is trained, and three epochs on a home CPU can take days or longer. A 124M-parameter model with a 50,257-token output layer is intentionally a large first-from-scratch experiment.
+This project contains a decoder-only Transformer written with PyTorch. It predicts the next GPT-2 token repeatedly. Flask serves a small website; `/generate` calls only `generate.py` and the local `model.safetensors`, with no ChatGPT, Ollama, or hosted inference fallback. The model starts with random weights. It cannot write useful code until it is trained, and three epochs on a home CPU can take days or longer. The default model has 45,171,200 parameters (width 512, six blocks); 25.7M of them are the 50,257-token embedding table, which is shared with the output layer. (124M is GPT-2 small: width 768, 12 blocks.)
 
 ## Folder contents
 
@@ -38,9 +38,9 @@ This project contains a decoder-only Transformer written with PyTorch. It predic
 
 ## Train and use
 
-`python train.py` uses the requested default three epochs, batch size 16, 512-token context, width 512, six blocks, learning rate 0.0005, and accumulation of four batches. This computer has only 3.8 GB of RAM and no CUDA GPU, so the requested full-size batch may not fit; a full-size model can be attempted with `python train.py --batch-size 1 --context 128 --accumulation 16`, at the cost of much slower training. For a quick pipeline-only diagnostic run use `python train.py --epochs 1 --batch-size 1 --context 128 --accumulation 1 --dim 64 --layers 2 --max-steps 5`. That tiny model is only a smoke test and is not interchangeable with the default architecture. Training writes `model.safetensors`, `model_config.json`, `training.jsonl`, and periodic `checkpoint-N.safetensors`. Check files with `dir *.safetensors`.
+`python train.py` uses the requested default three epochs, batch size 16, 512-token context, width 512, six blocks, learning rate 0.0005, and accumulation of four batches. This computer has only 3.8 GB of RAM and no CUDA GPU, so the requested full-size batch may not fit; a full-size model can be attempted with `python train.py --batch-size 1 --context 128 --accumulation 16`, at the cost of much slower training. For a quick pipeline-only diagnostic run use `python train.py --epochs 1 --batch-size 1 --context 128 --accumulation 1 --dim 64 --layers 2 --max-steps 5`. That tiny model is only a smoke test and is not interchangeable with the default architecture. On the first run, `train.py` tokenizes `files/data` one file at a time into `files/tokens/train.bin` and `val.bin` (memory-mapped, uint16), so RAM use stays flat even with a million files; later runs reuse the cache unless the file list changes or you pass `--rebuild-cache`. Training writes `model.safetensors`, `model_config.json`, `training.jsonl`, and periodic `checkpoint-N.safetensors`. Check files with `dir *.safetensors`.
 
-The fixed GPT-2 tokenizer itself limits each token id to the original GPT-2 vocabulary. The model config uses the actual tokenizer size. Evaluation reports validation cross-entropy (“loss”) and `exp(loss)` (“perplexity”); it does not claim a meaningful code-completion accuracy. Run `python generate.py "def add(a, b):"`; the script prints the result and writes `output.py`. Start the UI with `python app.py`, then visit <http://localhost:5000>. Type `Write a function to calculate total price`, press Generate Code, then use Copy or Run Code. Generated code quality depends on the data and training time.
+The fixed GPT-2 tokenizer itself limits each token id to the original GPT-2 vocabulary. The model config uses the actual tokenizer size. Evaluation reports validation cross-entropy (“loss”) and `exp(loss)` (“perplexity”); it does not claim a meaningful code-completion accuracy. Run `python generate.py "def add(a, b):"`; the script prints the result and writes `output.py`. Start the UI with `python app.py`, then visit <http://localhost:5000>. Type `Write a function to calculate total price`, press Generate Code, then use Copy or Run Code. The model learned only from raw `.py` files, so the website turns a plain-English request into a Python comment (`# Write a function...`) before generating. You get better results by starting the code yourself, for example `# calculate total price` on one line and `def total_price(items):` on the next. Generated code quality depends on the data and training time.
 
 The web runner permits a small AST-checked subset and built-in functions for this educational local demo. It is not an operating-system security sandbox. Keep the server bound to localhost and do not use it to run arbitrary untrusted code or expose it to the network.
 
@@ -69,6 +69,16 @@ Loss numbers are only rough intuition, not promises: `4.0` = bad guessing; `3.0`
 ## Make it better
 
 First get clean, licensed data and a working small run. Train for more steps/epochs if validation loss keeps improving. A million files helps only if the data is varied, relevant, and deduplicated. Larger models need much more memory and compute: 12 blocks and width 768 are not a simple quality switch on a home CPU. Fine-tune a pretrained code model if the goal is useful code rather than learning Transformer internals; this project deliberately starts from random weights. For this from-scratch model, the full defaults may require a GPU and days/weeks of training.
+
+## Recent fixes
+
+- Training loss is now averaged over every micro-batch since the last log line. Before, with `--accumulation 4` the printed loss was about 4x too high.
+- The last, smaller gradient-accumulation group of each epoch is scaled by its real size.
+- `model.safetensors` is always saved, even when the validation set is too small to evaluate (before, it was never written in that case).
+- Data is tokenized to a memory-mapped cache instead of one big in-RAM tensor.
+- Attention uses `is_causal=True`, so PyTorch can pick its fastest kernel without storing a 1024x1024 mask.
+- `generate.py` loads the model once and reuses it, and stops when the model emits end-of-file.
+- New `--heads` and `--log-every` training flags.
 
 ## Common problems
 
