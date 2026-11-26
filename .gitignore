@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+*.py[cod]
+model.safetensors
+checkpoint-*.safetensors
+model_config.json
+training.jsonl
+output.py
+# The streamed third-party corpus has per-file licenses that must be reviewed before redistribution.
+files/data/*.py
+files/data/.cache/
